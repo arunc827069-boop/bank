@@ -76,6 +76,15 @@ const statementResults = $("#statementResults");
 const statementForm = $("#statementForm");
 const downloadStatementPdfBtn = $("#downloadStatementPdf");
 
+// NEW CONSTANTS FOR TRANSFER & PHOTO DISPLAY
+const adminCreditForm = $("#adminCreditForm");
+const adminCreditStatus = $("#adminCreditStatus");
+const employeeSummaryDisplayArea = $("#employeeSummaryDisplayArea");
+const employeeSummaryContent = $("#employeeSummaryContent");
+const employeeCreditForm = $("#employeeCreditForm");
+const employeeCreditStatus = $("#employeeCreditStatus");
+// END NEW CONSTANTS
+
 function setSession(session) {
   if (!session) return;
   localStorage.setItem(sessionKey, JSON.stringify(session));
@@ -247,8 +256,11 @@ function setStatus(el, message, isError = false) {
   }
 }
 
+// MODIFIED: Added image rendering
 function buildEmployeeSummary(employee) {
-  return `Employee ID: ${employee.id}
+  const imageHtml = employee.image ? `<img src="${employee.image}" alt="${employee.name} photo" class="user-photo"/>` : '';
+
+  return `${imageHtml}Employee ID: ${employee.id}
 Name: ${employee.name}
 Age: ${employee.age}
 Address: ${employee.address}
@@ -260,8 +272,11 @@ Salary: ${formatCurrency(employee.salary)}
 Login Password: ${employee.password}`;
 }
 
+// MODIFIED: Added image rendering
 function buildClientSummary(client) {
-  return `Client ID: ${client.id}
+  const imageHtml = client.image ? `<img src="${client.image}" alt="${client.name} photo" class="user-photo"/>` : '';
+
+  return `${imageHtml}Client ID: ${client.id}
 Name: ${client.name}
 Age: ${client.age}
 DOB: ${client.dob}
@@ -320,6 +335,7 @@ function findClientById(id) {
   return clients.find((c) => c.id === id);
 }
 
+// Function to record transaction is already present and used by all transfers.
 function recordTransaction(clientId, type, amount, description) {
   const entry = {
     id: crypto.randomUUID(),
@@ -398,9 +414,7 @@ function renderClientList() {
         <div class="record-row">
           <div>
             <strong>${client.name} (${client.id})</strong>
-            <p>${client.accountType} · Balance ${formatCurrency(
-              client.balance
-            )}</p>
+            <p>${client.accountType} · Balance ${formatCurrency(client.balance)}</p>
             <p class="record-meta">Email: ${client.email} · Mobile: ${client.mobile}</p>
           </div>
           <div class="record-actions">
@@ -413,14 +427,19 @@ function renderClientList() {
 }
 
 function downloadEmployeePdf(employee) {
-  const lines = `${buildEmployeeSummary(employee)}
-
-${employee.appointmentLetter ?? buildAppointmentLetter(employee)}`;
-  downloadPdf(`Employee_${employee.id}`, lines);
+  const lines = buildEmployeeSummary(employee).replace(
+    /<\/?[^>]+(>|$)/g,
+    ""
+  ); // Remove image tag for PDF
+  downloadPdf(
+    `Employee_Appointment_${employee.id}`,
+    lines + "\n\n" + buildAppointmentLetter(employee)
+  );
 }
 
 function downloadClientPdf(client) {
-  downloadPdf(`Client_${client.id}`, buildClientSummary(client));
+  const lines = buildClientSummary(client).replace(/<\/?[^>]+(>|$)/g, ""); // Remove image tag for PDF
+  downloadPdf(`Client_${client.id}`, lines);
 }
 
 function refreshAutoFields() {
@@ -441,7 +460,6 @@ if (loginForm) {
       setStatus(loginStatus, "Please enter both ID and password.", true);
       return;
     }
-
     if (id === bankState.admin.id) {
       if (password === bankState.admin.password) {
         setSession({ role: "admin", id });
@@ -451,7 +469,6 @@ if (loginForm) {
       }
       return;
     }
-
     const employee = employees.find((emp) => emp.id === id);
     if (employee) {
       if (password === employee.password) {
@@ -462,7 +479,6 @@ if (loginForm) {
       }
       return;
     }
-
     const client = clients.find((c) => c.id === id);
     if (client) {
       if (password === client.pin) {
@@ -473,7 +489,6 @@ if (loginForm) {
       }
       return;
     }
-
     setStatus(loginStatus, "Account not found. Please check your ID.", true);
   });
 }
@@ -510,55 +525,45 @@ if (sendEmployeeOtpBtn) {
   );
 }
 
+// MODIFIED: Employee form submission to include image saving
 if (employeeForm) {
   employeeForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const position = $("#employeePosition").value;
-  const otpInput = $("#employeeOtp").value;
-  if (!verifyOtp("employee", otpInput)) {
-    alert("Invalid OTP. Please verify mobile number.");
-    return;
-  }
-  const image = await fileToBase64($("#employeeImage").files[0]);
-  const loginPassword =
-    employeePasswordField?.value || generateEmployeePassword();
-  const employee = {
-    id: employeeIdField.value,
-    position,
-    salary: salaryMap[position],
-    name: $("#employeeName").value,
-    age: $("#employeeAge").value,
-    address: $("#employeeAddress").value,
-    email: $("#employeeEmail").value,
-    aadhaar: $("#employeeAadhaar").value,
-    mobile: $("#employeeMobile").value,
-    password: loginPassword,
-    image,
-    appointmentLetter: buildAppointmentLetter({
-      id: employeeIdField.value,
-      name: $("#employeeName").value,
-      position,
-      salary: salaryMap[position],
-    }),
-    createdAt: new Date().toISOString(),
-  };
-  employees.push(employee);
-  saveEmployees();
-  latestEmployee = employee;
-  renderEmployeeList();
-  employeeSummary.textContent = `${buildEmployeeSummary(employee)}
+    event.preventDefault();
+    const position = $("#employeePosition").value;
+    const otpInput = $("#employeeOtp").value;
+    if (!verifyOtp("employee", otpInput)) {
+      alert("Invalid OTP. Please verify employee mobile.");
+      return;
+    }
+    const image = await fileToBase64($("#employeeImage").files[0]);
 
-Appointment Letter:
-${employee.appointmentLetter}`;
-  showElement(employeeResult);
-  downloadEmployeePdf(employee);
-  alert("Employee created successfully. Appointment letter downloaded.");
-  employeeForm.reset();
-  employeeSalaryField.value = "";
-  otpBuffer.employee = null;
-  refreshAutoFields();
-});
+    const employee = {
+      id: employeeIdField.value,
+      position,
+      name: $("#employeeName").value,
+      age: $("#employeeAge").value,
+      address: $("#employeeAddress").value,
+      email: $("#employeeEmail").value,
+      aadhaar: $("#employeeAadhaar").value,
+      mobile: $("#employeeMobile").value,
+      salary: Number($("#employeeSalary").value),
+      password: $("#employeePassword").value,
+      image, // SAVED EMPLOYEE IMAGE
+      createdAt: new Date().toISOString(),
+    };
+    employees.push(employee);
+    saveEmployees();
+    latestEmployee = employee;
+    renderEmployeeList();
+    employeeSummary.textContent = buildEmployeeSummary(employee);
+    showElement(employeeResult);
+    alert("Employee created successfully.");
+    employeeForm.reset();
+    otpBuffer.employee = null;
+    refreshAutoFields();
+  });
 }
+// END MODIFIED
 
 if (downloadEmployeePdfBtn) {
   downloadEmployeePdfBtn.addEventListener("click", () => {
@@ -577,41 +582,41 @@ if (sendClientOtpBtn) {
 
 if (clientForm) {
   clientForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const otpInput = $("#clientOtp").value;
-  if (!verifyOtp("client", otpInput)) {
-    alert("Invalid OTP. Please verify client mobile.");
-    return;
-  }
-  const image = await fileToBase64($("#clientImage").files[0]);
-  const client = {
-    id: clientIdField.value,
-    accountType: $("#clientAccountType").value,
-    name: $("#clientName").value,
-    age: $("#clientAge").value,
-    dob: $("#clientDob").value,
-    address: $("#clientAddress").value,
-    email: $("#clientEmail").value,
-    aadhaar: $("#clientAadhaar").value,
-    mobile: $("#clientMobile").value,
-    pan: $("#clientPan").value,
-    image,
-    debitCard: $("#clientDebitCard").value,
-    pin: $("#clientPin").value,
-    balance: 0,
-    createdAt: new Date().toISOString(),
-  };
-  clients.push(client);
-  saveClients();
-  latestClient = client;
-  renderClientList();
-  clientSummary.textContent = buildClientSummary(client);
-  showElement(clientResult);
-  alert("Client created successfully.");
-  clientForm.reset();
-  otpBuffer.client = null;
-  refreshAutoFields();
-});
+    event.preventDefault();
+    const otpInput = $("#clientOtp").value;
+    if (!verifyOtp("client", otpInput)) {
+      alert("Invalid OTP. Please verify client mobile.");
+      return;
+    }
+    const image = await fileToBase64($("#clientImage").files[0]);
+    const client = {
+      id: clientIdField.value,
+      accountType: $("#clientAccountType").value,
+      name: $("#clientName").value,
+      age: $("#clientAge").value,
+      dob: $("#clientDob").value,
+      address: $("#clientAddress").value,
+      email: $("#clientEmail").value,
+      aadhaar: $("#clientAadhaar").value,
+      mobile: $("#clientMobile").value,
+      pan: $("#clientPan").value,
+      image,
+      debitCard: $("#clientDebitCard").value,
+      pin: $("#clientPin").value,
+      balance: 0,
+      createdAt: new Date().toISOString(),
+    };
+    clients.push(client);
+    saveClients();
+    latestClient = client;
+    renderClientList();
+    clientSummary.textContent = buildClientSummary(client);
+    showElement(clientResult);
+    alert("Client created successfully.");
+    clientForm.reset();
+    otpBuffer.client = null;
+    refreshAutoFields();
+  });
 }
 
 if (downloadClientPdfBtn) {
@@ -621,6 +626,7 @@ if (downloadClientPdfBtn) {
   });
 }
 
+// MODIFIED: Employee list click handler to display details with photo in dedicated area
 employeeList?.addEventListener("click", (event) => {
   const button = event.target.closest(
     "button[data-view-employee], button[data-download-employee]"
@@ -632,7 +638,11 @@ employeeList?.addEventListener("click", (event) => {
   const employee = employees.find((emp) => emp.id === id);
   if (!employee) return;
   if (button.hasAttribute("data-view-employee")) {
-    alert(buildEmployeeSummary(employee));
+    employeeSummaryContent.innerHTML = buildEmployeeSummary(employee).replace(
+      /\n/g,
+      "<br/>"
+    );
+    showElement(employeeSummaryDisplayArea);
   } else {
     downloadEmployeePdf(employee);
   }
@@ -654,6 +664,7 @@ clientList?.addEventListener("click", (event) => {
     downloadClientPdf(client);
   }
 });
+// END MODIFIED
 
 // Client lookup and updates (employee tools)
 if (clientLookupForm) {
@@ -662,53 +673,60 @@ if (clientLookupForm) {
     const id = $("#lookupClientId").value.trim();
     const client = findClientById(id);
     if (!client) {
-      if (clientDetailsView) {
-        clientDetailsView.textContent = "Client not found.";
-        showElement(clientDetailsView);
-      }
+      setStatus(clientDetailsView, "Client not found.", true);
+      hideElement(clientDetailsView);
       hideElement(clientUpdateForm);
       return;
     }
-    if (clientDetailsView) {
-      clientDetailsView.innerHTML = `<strong>${client.name}</strong><br/>${buildClientSummary(
-        client
-      ).replace(/\n/g, "<br/>")}`;
-      showElement(clientDetailsView);
-    }
+    // Populate update form
     $("#updateClientName").value = client.name;
     $("#updateClientDob").value = client.dob;
     $("#updateClientAddress").value = client.address;
     $("#updateClientMobile").value = client.mobile;
     $("#updateClientEmail").value = client.email;
-    $("#updateClientPin").value = client.pin;
-    clientUpdateForm.dataset.clientId = client.id;
+    $("#updateClientPin").value = "";
+
+    // Show details
+    clientDetailsView.innerHTML = buildClientSummary(client).replace(
+      /\n/g,
+      "<br/>"
+    );
+    showElement(clientDetailsView);
     showElement(clientUpdateForm);
+    latestClient = client;
   });
 }
 
 if (clientUpdateForm) {
   clientUpdateForm.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const clientId = event.currentTarget.dataset.clientId;
-    const client = findClientById(clientId);
-    if (!client) return;
-    client.name = $("#updateClientName").value;
-    client.dob = $("#updateClientDob").value;
-    client.address = $("#updateClientAddress").value;
-    client.mobile = $("#updateClientMobile").value;
-    client.email = $("#updateClientEmail").value;
-    client.pin = $("#updateClientPin").value;
+    if (!latestClient) return;
+
+    // Update fields
+    latestClient.name = $("#updateClientName").value.trim();
+    latestClient.dob = $("#updateClientDob").value.trim();
+    latestClient.address = $("#updateClientAddress").value.trim();
+    latestClient.mobile = $("#updateClientMobile").value.trim();
+    latestClient.email = $("#updateClientEmail").value.trim();
+
+    const newPin = $("#updateClientPin").value.trim();
+    if (newPin) {
+      latestClient.pin = newPin;
+      alert(`Client PIN updated to: ${newPin}`);
+    }
+
     const newImageFile = $("#updateClientImage").files[0];
     if (newImageFile) {
-      client.image = await fileToBase64(newImageFile);
+      latestClient.image = await fileToBase64(newImageFile);
+      alert("Client photo updated.");
     }
+
     saveClients();
-    alert("Client details updated.");
-    if (clientDetailsView) {
-      clientDetailsView.innerHTML = `<strong>${client.name}</strong><br/>${buildClientSummary(
-        client
-      ).replace(/\n/g, "<br/>")}`;
-    }
+    setStatus(clientDetailsView, "Client details updated successfully!", false);
+    clientDetailsView.innerHTML = buildClientSummary(latestClient).replace(
+      /\n/g,
+      "<br/>"
+    );
     renderClientList();
   });
 }
@@ -761,8 +779,89 @@ if (clientToBankForm) {
   });
 }
 
+// IMPLEMENTATION 1: Admin-to-Client Money Transfer (Credit)
+if (adminCreditForm) {
+  adminCreditForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const clientId = $("#creditClientId").value.trim();
+    const amount = Number($("#creditAmount").value);
+    const client = findClientById(clientId);
+    const adminId = bankState.admin.id;
+
+    if (!client) {
+      setStatus(adminCreditStatus, "Client not found.", true);
+      return;
+    }
+    if (amount <= 0) {
+      setStatus(adminCreditStatus, "Invalid amount.", true);
+      return;
+    }
+
+    client.balance += amount;
+    bankState.balance -= amount;
+
+    saveClients();
+    localStorage.setItem(bankStoreKey, JSON.stringify(bankState));
+
+    recordTransaction(
+      client.id,
+      "credit",
+      amount,
+      `Credit from Admin (${adminId})`
+    );
+
+    setStatus(
+      adminCreditStatus,
+      `Credited ${formatCurrency(amount)} to ${client.name} (${client.id}). New Balance: ${formatCurrency(client.balance)}`
+    );
+    renderClientList();
+    adminCreditForm.reset();
+  });
+}
+
+// IMPLEMENTATION 2: Employee-to-Client Money Transfer (Deposit/Credit)
+if (employeeCreditForm) {
+  employeeCreditForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const clientId = $("#employeeCreditClientId").value.trim();
+    const amount = Number($("#employeeCreditAmount").value);
+    const client = findClientById(clientId);
+    const employeeId = currentEmployee ? currentEmployee.id : 'N/A'; 
+
+    if (!client) {
+      setStatus(employeeCreditStatus, "Client not found.", true);
+      return;
+    }
+    if (amount <= 0) {
+      setStatus(employeeCreditStatus, "Invalid amount.", true);
+      return;
+    }
+    
+    client.balance += amount;
+    bankState.balance -= amount; 
+
+    saveClients();
+    localStorage.setItem(bankStoreKey, JSON.stringify(bankState));
+
+    recordTransaction(
+      client.id,
+      "credit",
+      amount,
+      `Cash Deposit by Employee (${employeeId})`
+    );
+
+    setStatus(
+      employeeCreditStatus,
+      `Deposited ${formatCurrency(amount)} to ${client.name} (${client.id}). New Balance: ${formatCurrency(client.balance)}`
+    );
+    renderClientList();
+    employeeCreditForm.reset();
+  });
+}
+
 function renderClientDetails() {
   if (!currentClient || !clientDetailsSummary) return;
+  // This now renders the image based on the modified buildClientSummary
   clientDetailsSummary.innerHTML = buildClientSummary(currentClient).replace(
     /\n/g,
     "<br/>"
@@ -771,72 +870,18 @@ function renderClientDetails() {
 
 document.querySelectorAll("[data-client-tab]").forEach((btn) => {
   btn.addEventListener("click", () => {
-    document.querySelectorAll("[data-client-tab]").forEach((el) =>
-      el.classList.remove("active")
-    );
+    document.querySelectorAll("[data-client-tab]").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
-    document.querySelectorAll(".client-tab").forEach((tab) =>
-      tab.classList.add("hidden")
-    );
-    const target = btn.dataset.clientTab;
-    if (target === "details") {
-      showElement($("#clientTabDetails"));
+    document.querySelectorAll(".client-tab").forEach((tab) => {
+      tab.classList.add("hidden");
+    });
+    const tabId = `#clientTab${btn.dataset.clientTab.charAt(0).toUpperCase() + btn.dataset.clientTab.slice(1)}`;
+    showElement($(tabId));
+    if (btn.dataset.clientTab === 'details') {
       renderClientDetails();
-    } else if (target === "transfer") {
-      showElement($("#clientTabTransfer"));
-    } else {
-      showElement($("#clientTabStatement"));
     }
   });
 });
-
-if (clientTransferForm) {
-  clientTransferForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (!currentClient) return;
-    const targetId = $("#clientTransferTarget").value.trim();
-    const amount = Number($("#clientTransferAmount").value);
-    const pin = $("#clientTransferPin").value.trim();
-    if (pin !== currentClient.pin) {
-      setStatus(clientTransferStatus, "Incorrect PIN.", true);
-      return;
-    }
-    if (targetId === currentClient.id) {
-      setStatus(clientTransferStatus, "Cannot transfer to same account.", true);
-      return;
-    }
-    const targetClient = findClientById(targetId);
-    if (!targetClient) {
-      setStatus(clientTransferStatus, "Receiving account not found.", true);
-      return;
-    }
-    if (amount <= 0 || amount > currentClient.balance) {
-      setStatus(clientTransferStatus, "Insufficient balance.", true);
-      return;
-    }
-    currentClient.balance -= amount;
-    targetClient.balance += amount;
-    saveClients();
-    recordTransaction(
-      currentClient.id,
-      "debit",
-      amount,
-      `Transfer to ${targetClient.id}`
-    );
-    recordTransaction(
-      targetClient.id,
-      "credit",
-      amount,
-      `Transfer from ${currentClient.id}`
-    );
-    setStatus(
-      clientTransferStatus,
-      `Transferred ${formatCurrency(amount)} to ${targetClient.name}.`
-    );
-    renderClientDetails();
-    renderClientList();
-  });
-}
 
 if (statementForm) {
   statementForm.addEventListener("submit", (event) => {
@@ -884,16 +929,28 @@ function initializePageRole() {
     refreshAutoFields();
     showElement(employeeDashboard);
   } else if (pageRole === "client") {
-    currentClient = clients.find((c) => c.id === session.id);
+    currentClient = clients.find((client) => client.id === session.id);
     if (!currentClient) {
       clearSession();
       window.location.href = "index.html";
       return;
     }
-    showElement(clientDashboard);
     renderClientDetails();
+    showElement(clientDashboard);
   }
 }
 
-initializePageRole();
+document.addEventListener("DOMContentLoaded", () => {
+  initializePageRole();
+});
 
+// Logout logic
+document.querySelectorAll(".hero__cta .btn").forEach((btn) => {
+  if (btn.textContent === "Switch User") {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      clearSession();
+      window.location.href = "index.html";
+    });
+  }
+});
