@@ -22,6 +22,7 @@ const bankState = {
   balance: 10_000_000_000,
 };
 
+// Data is saved permanently in the browser's localStorage
 let employees = JSON.parse(localStorage.getItem(employeeKey) ?? "[]");
 let clients = JSON.parse(localStorage.getItem(clientKey) ?? "[]");
 let transactions = JSON.parse(localStorage.getItem(transactionKey) ?? "[]");
@@ -68,22 +69,41 @@ const clientBalanceForm = $("#clientBalanceForm");
 const clientBalanceDisplay = $("#clientBalanceDisplay");
 const clientTransferMessage = $("#clientTransferMessage");
 const clientToBankForm = $("#clientToBankForm");
-const clientTransferForm = $("#clientTransferForm");
 
 const clientDetailsSummary = $("#clientDetailsSummary");
+const clientTransferForm = $("#clientTransferForm");
 const clientTransferStatus = $("#clientTransferStatus");
-const statementResults = $("#statementResults");
-const statementForm = $("#statementForm");
+const statementResults = $("#statementResults"); // Note: This is unused in the new Client tab.
+const statementForm = $("#statementForm"); // Note: This is unused in the new Client tab.
 const downloadStatementPdfBtn = $("#downloadStatementPdf");
 
-// NEW CONSTANTS FOR TRANSFER & PHOTO DISPLAY
 const adminCreditForm = $("#adminCreditForm");
 const adminCreditStatus = $("#adminCreditStatus");
 const employeeSummaryDisplayArea = $("#employeeSummaryDisplayArea");
 const employeeSummaryContent = $("#employeeSummaryContent");
 const employeeCreditForm = $("#employeeCreditForm");
 const employeeCreditStatus = $("#employeeCreditStatus");
-// END NEW CONSTANTS
+
+const downloadDebitCardPdfBtn = $("#downloadDebitCardPdf");
+const externalTransferForm = $("#externalTransferForm"); // Client Portal External Transfer
+const externalTransferStatus = $("#externalTransferStatus");
+
+const adminExternalTransferForm = $("#adminExternalTransferForm");
+const adminExternalTransferStatus = $("#adminExternalTransferStatus");
+
+const employeeExternalTransferForm = $("#employeeExternalTransferForm");
+const employeeExternalTransferStatus = $("#employeeExternalTransferStatus");
+
+// NEW TRANSACTION REPORT CONSTANTS
+const adminReportForm = $("#adminReportForm");
+const employeeReportForm = $("#employeeReportForm");
+const employeeReportResults = $("#employeeReportResults");
+const downloadEmployeeReportPdfBtn = $("#downloadEmployeeReportPdf");
+
+// NEW: Client side statement elements
+const clientStatementDaysForm = $("#clientStatementDaysForm");
+const clientStatementDaysResult = $("#clientStatementDaysResult");
+
 
 function setSession(session) {
   if (!session) return;
@@ -127,6 +147,7 @@ let currentRole = null;
 let latestEmployee = null;
 let latestClient = null;
 let latestStatementLines = [];
+let latestReportLines = []; // New buffer for general reports
 
 function saveEmployees() {
   localStorage.setItem(employeeKey, JSON.stringify(employees));
@@ -154,25 +175,6 @@ function generateClientId() {
   return id;
 }
 
-function generateDebitCardNumber() {
-  const cardField = $("#clientDebitCard");
-  if (!cardField) return "";
-  let digits = "";
-  while (digits.length < 16) {
-    digits += Math.floor(Math.random() * 10);
-  }
-  cardField.value = digits;
-  return digits;
-}
-
-function generatePin() {
-  const pinField = $("#clientPin");
-  if (!pinField) return "";
-  const pin = Math.floor(10000 + Math.random() * 90000).toString();
-  pinField.value = pin;
-  return pin;
-}
-
 function generateEmployeePassword() {
   const pin = Math.floor(10000 + Math.random() * 90000).toString();
   if (employeePasswordField) {
@@ -180,6 +182,43 @@ function generateEmployeePassword() {
   }
   return pin;
 }
+
+/**
+ * Generates all debit card and security details (Card Number, PIN, Expiry, CVV).
+ */
+function generateCardDetails() {
+  // Generate 16-digit Card Number
+  let cardNumber = "";
+  while (cardNumber.length < 16) {
+    cardNumber += Math.floor(Math.random() * 10);
+  }
+  
+  // Generate 5-digit PIN
+  const pin = Math.floor(10000 + Math.random() * 90000).toString();
+
+  // Generate 3-digit CVV
+  const cvv = Math.floor(100 + Math.random() * 900).toString();
+
+  // Generate Expiry Date (4 years from now, next month)
+  const today = new Date();
+  const expiryYear = (today.getFullYear() % 100) + 4;
+  const expiryMonth = (today.getMonth() + 2).toString().padStart(2, '0');
+  const expiryDate = `${expiryMonth}/${expiryYear}`; // MM/YY
+  
+  // Update fields on the Client Creation form if they exist
+  const cardField = $("#clientDebitCard");
+  const pinField = $("#clientPin");
+  const expiryField = $("#clientDebitCardExpiry");
+  const cvvField = $("#clientDebitCardCvv");
+
+  if (cardField) cardField.value = cardNumber;
+  if (pinField) pinField.value = pin;
+  if (expiryField) expiryField.value = expiryDate;
+  if (cvvField) cvvField.value = cvv;
+  
+  return { cardNumber, pin, expiryDate, cvv };
+}
+
 
 function sendOtp(type, mobileFieldId) {
   const field = $(mobileFieldId);
@@ -256,7 +295,6 @@ function setStatus(el, message, isError = false) {
   }
 }
 
-// MODIFIED: Added image rendering
 function buildEmployeeSummary(employee) {
   const imageHtml = employee.image ? `<img src="${employee.image}" alt="${employee.name} photo" class="user-photo"/>` : '';
 
@@ -272,7 +310,7 @@ Salary: ${formatCurrency(employee.salary)}
 Login Password: ${employee.password}`;
 }
 
-// MODIFIED: Added image rendering
+// MODIFIED: Added Expiry and CVV
 function buildClientSummary(client) {
   const imageHtml = client.image ? `<img src="${client.image}" alt="${client.name} photo" class="user-photo"/>` : '';
 
@@ -287,6 +325,8 @@ Mobile: ${client.mobile}
 Account Type: ${client.accountType}
 PAN: ${client.pan}
 Debit Card: ${client.debitCard}
+Expiry: ${client.cardExpiry}
+CVV: ${client.cardCvv}
 Security PIN: ${client.pin}
 Balance: ${formatCurrency(client.balance)}`;
 }
@@ -331,11 +371,97 @@ function downloadPdf(title, lines) {
   doc.save(`${title.replace(/\s+/g, "_").toLowerCase()}.pdf`);
 }
 
+// IMPLEMENTED: Debit Card PDF Download Function
+function downloadDebitCardPdf(client) {
+    const { jsPDF } = window.jspdf;
+    // Set format to standard credit card size (85.6mm x 53.98mm)
+    const doc = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: [85.6, 53.98], 
+    });
+
+    const cardWidth = 85.6;
+    const cardHeight = 53.98;
+
+    // --- Card Design (Front) ---
+
+    // Background (Dark Blue/Purple)
+    doc.setFillColor(50, 40, 70);
+    doc.roundedRect(0, 0, cardWidth, cardHeight, 3, 3, 'F');
+
+    // Bank Name
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(5);
+    doc.text("ALL IN ONE MONEY BANK", 5, 5);
+
+    // Chip Icon (Simulated)
+    doc.setFillColor(200, 180, 100);
+    doc.roundedRect(5, 10, 8, 6, 1, 1, 'F');
+
+    // Card Number (Formatted)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    const formattedCardNumber = client.debitCard.match(/.{1,4}/g).join(' ');
+    doc.text(formattedCardNumber, cardWidth / 2, cardHeight / 2 + 5, { align: 'center' });
+    
+    // Card Holder Name
+    doc.setFontSize(5);
+    doc.setFont("helvetica", "normal");
+    doc.text("CARD HOLDER", 5, 40);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6);
+    doc.text(client.name.toUpperCase(), 5, 43);
+
+    // Expiry Date
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(4);
+    doc.text("VALID\nTHRU", 60, 40);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6);
+    doc.text(client.cardExpiry, 65, 43);
+    
+    // Logo (Simulated)
+    doc.setFont("helvetica", "bolditalic");
+    doc.setTextColor(255, 165, 0);
+    doc.setFontSize(10);
+    doc.text("VISA", 75, 45);
+    
+    // --- Card Design (Back - New Page) ---
+    doc.addPage(cardWidth, cardHeight, 'landscape');
+    
+    // Background (Dark Blue/Purple)
+    doc.setFillColor(50, 40, 70);
+    doc.roundedRect(0, 0, cardWidth, cardHeight, 3, 3, 'F');
+    doc.setTextColor(255, 255, 255);
+
+    // Magnetic Stripe (Simulated)
+    doc.setFillColor(30, 30, 30);
+    doc.rect(0, 5, cardWidth, 8, 'F');
+
+    // Signature Panel (Simulated)
+    doc.setFillColor(200, 200, 200);
+    doc.rect(5, 20, 70, 8, 'F');
+    
+    // CVV
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(0, 0, 0); // Black text on signature panel
+    doc.setFontSize(6);
+    doc.text(client.cardCvv, 75, 25, { align: 'right' });
+    
+    // Security Warning
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(4);
+    doc.text("Security Code (CVV): This card is for demonstration purposes only. Do not share.", 5, 45);
+
+    doc.save(`Debit_Card_${client.id}.pdf`);
+}
+
 function findClientById(id) {
   return clients.find((c) => c.id === id);
 }
 
-// Function to record transaction is already present and used by all transfers.
 function recordTransaction(clientId, type, amount, description) {
   const entry = {
     id: crypto.randomUUID(),
@@ -350,105 +476,82 @@ function recordTransaction(clientId, type, amount, description) {
   return entry;
 }
 
-function filterTransactions(clientId, period) {
-  const days = statementPeriods[period] ?? 30;
+/**
+ * Filters ALL transactions in the bank for a given period in days.
+ * @param {number} days - The number of days back to filter.
+ */
+function filterAllTransactions(days) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
   return transactions.filter(
-    (tx) => tx.clientId === clientId && new Date(tx.date) >= cutoff
-  );
+    (tx) => new Date(tx.date) >= cutoff
+  ).sort((a, b) => new Date(b.date) - new Date(a.date)); // Sort latest first
 }
 
-function renderStatementLines(list) {
+/**
+ * Filters transactions by Client ID or Employee ID (which is stored in the description).
+ * @param {string} id - Client ID (CLTxxxx) or Employee ID (EMPxxxx).
+ * @param {number} days - The number of days back to filter.
+ */
+function filterIdTransactions(id, days) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    return transactions.filter(
+        (tx) => new Date(tx.date) >= cutoff && 
+               (tx.clientId === id || tx.description.includes(id))
+    ).sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+// Client-specific statement filter (using the old function name for backward compatibility)
+function filterTransactions(clientId, period) {
+  const days = statementPeriods[period] ?? 30;
+  return filterIdTransactions(clientId, days);
+}
+
+
+/**
+ * Renders transaction list to HTML and saves lines for PDF.
+ * @param {Array} list - The list of transaction objects.
+ * @param {HTMLElement} resultEl - The element to render the HTML list into.
+ * @param {string} idPrefix - The prefix for the transaction ID (e.g., 'Client' or 'Bank').
+ */
+function renderTransactionLines(list, resultEl, idPrefix = 'Client') {
   if (!list.length) {
-    statementResults.textContent = "No transactions for this period.";
+    resultEl.textContent = `No ${idPrefix} transactions for this period.`;
+    // Clear both buffers just in case
+    latestReportLines = [];
     latestStatementLines = [];
-    return;
+    // Hide download button for Employee report if no results
+    if (idPrefix !== 'Client') {
+        hideElement(downloadEmployeeReportPdfBtn);
+    }
+    return [];
   }
   const lines = list.map(
     (tx) =>
       `${new Date(tx.date).toLocaleString()} | ${tx.type.toUpperCase()} | ${formatCurrency(
         tx.amount
-      )} | ${tx.description}`
+      )} | A/C: ${tx.clientId} | ${tx.description}`
   );
-  statementResults.innerHTML = `<ul>${lines
+  resultEl.innerHTML = `<ul>${lines
     .map((line) => `<li>${line}</li>`)
     .join("")}</ul>`;
-  latestStatementLines = lines;
-}
-
-function renderEmployeeList() {
-  if (!employeeList) return;
-  if (!employees.length) {
-    employeeList.innerHTML = '<p class="muted">No employees yet.</p>';
-    return;
+    
+  if (idPrefix === 'Client') {
+    latestStatementLines = lines; // Use for client tab
+  } else {
+    latestReportLines = lines; // Use for admin/employee reports
+    showElement(downloadEmployeeReportPdfBtn); // Show download button for Employee report
   }
-  employeeList.innerHTML = employees
-    .map(
-      (emp) => `
-        <div class="record-row">
-          <div>
-            <strong>${emp.name} (${emp.id})</strong>
-            <p>${emp.position} · Salary ${formatCurrency(emp.salary)}</p>
-            <p class="record-meta">Email: ${emp.email} · Mobile: ${emp.mobile}</p>
-            <p class="record-meta">Login Password: ${emp.password}</p>
-          </div>
-          <div class="record-actions">
-            <button class="btn secondary mini" data-view-employee="${emp.id}">View</button>
-            <button class="btn primary mini" data-download-employee="${emp.id}">Appointment PDF</button>
-          </div>
-        </div>`
-    )
-    .join("");
+  return lines;
 }
 
-function renderClientList() {
-  if (!clientList) return;
-  if (!clients.length) {
-    clientList.innerHTML = '<p class="muted">No clients yet.</p>';
-    return;
-  }
-  clientList.innerHTML = clients
-    .map(
-      (client) => `
-        <div class="record-row">
-          <div>
-            <strong>${client.name} (${client.id})</strong>
-            <p>${client.accountType} · Balance ${formatCurrency(client.balance)}</p>
-            <p class="record-meta">Email: ${client.email} · Mobile: ${client.mobile}</p>
-          </div>
-          <div class="record-actions">
-            <button class="btn secondary mini" data-view-client="${client.id}">View</button>
-            <button class="btn primary mini" data-download-client="${client.id}">Details PDF</button>
-          </div>
-        </div>`
-    )
-    .join("");
+function renderStatementLines(list) {
+  // This is kept for backward compatibility with the old client statement form if it were still active, 
+  // but now the new clientStatementDaysResult is used
+  return renderTransactionLines(list, statementResults, 'Client'); 
 }
 
-function downloadEmployeePdf(employee) {
-  const lines = buildEmployeeSummary(employee).replace(
-    /<\/?[^>]+(>|$)/g,
-    ""
-  ); // Remove image tag for PDF
-  downloadPdf(
-    `Employee_Appointment_${employee.id}`,
-    lines + "\n\n" + buildAppointmentLetter(employee)
-  );
-}
-
-function downloadClientPdf(client) {
-  const lines = buildClientSummary(client).replace(/<\/?[^>]+(>|$)/g, ""); // Remove image tag for PDF
-  downloadPdf(`Client_${client.id}`, lines);
-}
-
-function refreshAutoFields() {
-  generateEmployeeId();
-  generateClientId();
-  generateDebitCardNumber();
-  generatePin();
-  generateEmployeePassword();
-}
 
 // Unified login
 if (loginForm) {
@@ -525,7 +628,6 @@ if (sendEmployeeOtpBtn) {
   );
 }
 
-// MODIFIED: Employee form submission to include image saving
 if (employeeForm) {
   employeeForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -548,7 +650,7 @@ if (employeeForm) {
       mobile: $("#employeeMobile").value,
       salary: Number($("#employeeSalary").value),
       password: $("#employeePassword").value,
-      image, // SAVED EMPLOYEE IMAGE
+      image,
       createdAt: new Date().toISOString(),
     };
     employees.push(employee);
@@ -563,7 +665,6 @@ if (employeeForm) {
     refreshAutoFields();
   });
 }
-// END MODIFIED
 
 if (downloadEmployeePdfBtn) {
   downloadEmployeePdfBtn.addEventListener("click", () => {
@@ -589,6 +690,13 @@ if (clientForm) {
       return;
     }
     const image = await fileToBase64($("#clientImage").files[0]);
+
+    // Capture Debit Card fields
+    const debitCard = $("#clientDebitCard").value;
+    const cardExpiry = $("#clientDebitCardExpiry").value;
+    const cardCvv = $("#clientDebitCardCvv").value;
+    const pin = $("#clientPin").value;
+    
     const client = {
       id: clientIdField.value,
       accountType: $("#clientAccountType").value,
@@ -601,8 +709,10 @@ if (clientForm) {
       mobile: $("#clientMobile").value,
       pan: $("#clientPan").value,
       image,
-      debitCard: $("#clientDebitCard").value,
-      pin: $("#clientPin").value,
+      debitCard,
+      cardExpiry,
+      cardCvv,
+      pin,
       balance: 0,
       createdAt: new Date().toISOString(),
     };
@@ -626,7 +736,16 @@ if (downloadClientPdfBtn) {
   });
 }
 
-// MODIFIED: Employee list click handler to display details with photo in dedicated area
+if (downloadDebitCardPdfBtn) {
+    downloadDebitCardPdfBtn.addEventListener("click", () => {
+        if (!currentClient) {
+            alert("Please log in as a client to download the card.");
+            return;
+        }
+        downloadDebitCardPdf(currentClient);
+    });
+}
+
 employeeList?.addEventListener("click", (event) => {
   const button = event.target.closest(
     "button[data-view-employee], button[data-download-employee]"
@@ -664,7 +783,6 @@ clientList?.addEventListener("click", (event) => {
     downloadClientPdf(client);
   }
 });
-// END MODIFIED
 
 // Client lookup and updates (employee tools)
 if (clientLookupForm) {
@@ -769,7 +887,7 @@ if (clientToBankForm) {
       client.id,
       "debit",
       amount,
-      "Transfer to bank own account"
+      "Transfer to bank own account (Employee action)"
     );
     setStatus(
       clientTransferMessage,
@@ -779,7 +897,7 @@ if (clientToBankForm) {
   });
 }
 
-// IMPLEMENTATION 1: Admin-to-Client Money Transfer (Credit)
+// Admin-to-Client Money Transfer (Credit)
 if (adminCreditForm) {
   adminCreditForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -819,7 +937,7 @@ if (adminCreditForm) {
   });
 }
 
-// IMPLEMENTATION 2: Employee-to-Client Money Transfer (Deposit/Credit)
+// Employee-to-Client Money Transfer (Deposit/Credit)
 if (employeeCreditForm) {
   employeeCreditForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -859,6 +977,290 @@ if (employeeCreditForm) {
   });
 }
 
+// Client-to-Client Transfer (Internal)
+if (clientTransferForm) {
+  clientTransferForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!currentClient) return;
+
+    const receiverId = $("#transferReceiverId").value.trim();
+    const amount = Number($("#transferAmount").value);
+    const receiver = findClientById(receiverId);
+
+    if (!receiver) {
+      setStatus(clientTransferStatus, "Receiver Client ID not found.", true);
+      return;
+    }
+    if (currentClient.id === receiver.id) {
+      setStatus(clientTransferStatus, "Cannot transfer to the same account.", true);
+      return;
+    }
+    if (amount <= 0 || amount > currentClient.balance) {
+      setStatus(clientTransferStatus, "Insufficient balance or invalid amount.", true);
+      return;
+    }
+
+    currentClient.balance -= amount;
+    receiver.balance += amount;
+
+    saveClients();
+
+    recordTransaction(
+      currentClient.id,
+      "debit",
+      amount,
+      `Internal transfer to ${receiver.name} (${receiverId})`
+    );
+    recordTransaction(
+      receiver.id,
+      "credit",
+      amount,
+      `Internal transfer from ${currentClient.name} (${currentClient.id})`
+    );
+
+    setStatus(
+      clientTransferStatus,
+      `Transferred ${formatCurrency(amount)} to ${receiver.name}. New Balance: ${formatCurrency(currentClient.balance)}`
+    );
+    renderClientDetails();
+    clientTransferForm.reset();
+  });
+}
+
+// Client Portal: External Bank Transfer (Other Bank)
+if (externalTransferForm) {
+    externalTransferForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!currentClient) return;
+
+        const receiverAccount = $("#externalReceiverAccount").value.trim();
+        const ifscCode = $("#externalIfscCode").value.trim().toUpperCase();
+        const receiverName = $("#externalReceiverName").value.trim();
+        const amount = Number($("#externalTransferAmount").value);
+        
+        // Simple validation 
+        if (amount <= 0 || amount > currentClient.balance) {
+            setStatus(externalTransferStatus, "Insufficient balance or invalid amount.", true);
+            return;
+        }
+        if (ifscCode.length !== 11) {
+            setStatus(externalTransferStatus, "Invalid IFSC Code length.", true);
+            return;
+        }
+
+        // Process Transfer: Debit client, money leaves the system to an external bank
+        currentClient.balance -= amount;
+        bankState.balance -= amount; // Money is leaving the bank's total system
+
+        saveClients();
+        localStorage.setItem(bankStoreKey, JSON.stringify(bankState));
+
+        // Record transaction
+        recordTransaction(
+            currentClient.id,
+            "debit",
+            amount,
+            `External Transfer to ${receiverName} (A/C: ${receiverAccount}, IFSC: ${ifscCode})`
+        );
+
+        // Update display
+        setStatus(
+            externalTransferStatus,
+            `Successfully transferred ${formatCurrency(amount)} to ${receiverName} (External Bank). New Balance: ${formatCurrency(currentClient.balance)}`
+        );
+        renderClientDetails(); 
+        externalTransferForm.reset();
+    });
+}
+
+// Admin Initiate Client External Transfer
+if (adminExternalTransferForm) {
+    adminExternalTransferForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        const senderId = $("#adminExternalSenderId").value.trim();
+        const receiverAccount = $("#adminExternalReceiverAccount").value.trim();
+        const ifscCode = $("#adminExternalIfscCode").value.trim().toUpperCase();
+        const receiverName = $("#adminExternalReceiverName").value.trim();
+        const amount = Number($("#adminExternalTransferAmount").value);
+        const adminId = bankState.admin.id;
+
+        const senderClient = findClientById(senderId);
+
+        if (!senderClient) {
+            setStatus(adminExternalTransferStatus, "Sender Client ID not found.", true);
+            return;
+        }
+        if (amount <= 0 || amount > senderClient.balance) {
+            setStatus(adminExternalTransferStatus, "Insufficient balance or invalid amount.", true);
+            return;
+        }
+        if (ifscCode.length !== 11) {
+            setStatus(adminExternalTransferStatus, "Invalid IFSC Code length.", true);
+            return;
+        }
+
+        // Process Transfer: Debit client, money leaves the bank's system
+        senderClient.balance -= amount;
+        bankState.balance -= amount; 
+
+        saveClients();
+        localStorage.setItem(bankStoreKey, JSON.stringify(bankState));
+
+        // Record transaction
+        recordTransaction(
+            senderClient.id,
+            "debit",
+            amount,
+            `External Transfer to ${receiverName} (A/C: ${receiverAccount}, IFSC: ${ifscCode}) - Initiated by Admin (${adminId})`
+        );
+
+        // Update display
+        setStatus(
+            adminExternalTransferStatus,
+            `Successfully transferred ${formatCurrency(amount)} from ${senderClient.id} to ${receiverName} (External Bank). New Client Balance: ${formatCurrency(senderClient.balance)}`
+        );
+        adminExternalTransferForm.reset();
+        renderClientList(); // Refresh list to show updated balance
+    });
+}
+
+
+// Employee Initiate Client External Transfer
+if (employeeExternalTransferForm) {
+    employeeExternalTransferForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!currentEmployee) return;
+
+        const senderId = $("#employeeExternalSenderId").value.trim();
+        const receiverAccount = $("#employeeExternalReceiverAccount").value.trim();
+        const ifscCode = $("#employeeExternalIfscCode").value.trim().toUpperCase();
+        const receiverName = $("#employeeExternalReceiverName").value.trim();
+        const amount = Number($("#employeeExternalTransferAmount").value);
+        const employeeId = currentEmployee.id;
+
+        const senderClient = findClientById(senderId);
+
+        if (!senderClient) {
+            setStatus(employeeExternalTransferStatus, "Sender Client ID not found.", true);
+            return;
+        }
+        if (amount <= 0 || amount > senderClient.balance) {
+            setStatus(employeeExternalTransferStatus, "Insufficient balance or invalid amount.", true);
+            return;
+        }
+        if (ifscCode.length !== 11) {
+            setStatus(employeeExternalTransferStatus, "Invalid IFSC Code length.", true);
+            return;
+        }
+
+        // Process Transfer: Debit client, money leaves the bank's system
+        senderClient.balance -= amount;
+        bankState.balance -= amount; 
+
+        saveClients();
+        localStorage.setItem(bankStoreKey, JSON.stringify(bankState));
+
+        // Record transaction
+        recordTransaction(
+            senderClient.id,
+            "debit",
+            amount,
+            `External Transfer to ${receiverName} (A/C: ${receiverAccount}, IFSC: ${ifscCode}) - Initiated by Employee (${employeeId})`
+        );
+
+        // Update display
+        setStatus(
+            employeeExternalTransferStatus,
+            `Successfully transferred ${formatCurrency(amount)} from ${senderClient.id} to ${receiverName} (External Bank). New Client Balance: ${formatCurrency(senderClient.balance)}`
+        );
+        employeeExternalTransferForm.reset();
+        renderClientList(); // Refresh list to show updated balance
+    });
+}
+
+// ** NEW ADMIN REPORT LOGIC **
+if (adminReportForm) {
+    adminReportForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const periodKey = $("#adminReportPeriod").value;
+        const days = statementPeriods[periodKey];
+        
+        if (!days) {
+            alert("Please select a valid period.");
+            return;
+        }
+
+        const list = filterAllTransactions(days);
+        // Note: adminReportResults is a hidden div only used to satisfy the renderTransactionLines function's requirement.
+        const resultsEl = document.getElementById("adminReportResults"); 
+        
+        // Render the results (which also saves to latestReportLines)
+        const lines = renderTransactionLines(list, resultsEl, 'Bank');
+
+        if (lines.length > 0) {
+             // Automatic download as requested by user
+             downloadPdf(
+                `Bank_Total_Transactions_${periodKey}`,
+                lines.join("\n")
+             );
+        } else {
+             alert(`No bank transactions found for the last ${days} days.`);
+        }
+    });
+}
+
+// ** NEW EMPLOYEE REPORT LOGIC **
+if (employeeReportForm) {
+    employeeReportForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const id = $("#employeeReportId").value.trim().toUpperCase();
+        const days = Number($("#employeeReportDays").value);
+        
+        if (!days || days <= 0) {
+            alert("Please enter a valid number of days.");
+            return;
+        }
+        
+        const list = filterIdTransactions(id, days);
+        
+        renderTransactionLines(list, employeeReportResults, id.startsWith('CLT') ? 'Client' : 'ID');
+    });
+}
+
+if (downloadEmployeeReportPdfBtn) {
+    downloadEmployeeReportPdfBtn.addEventListener("click", () => {
+        const id = $("#employeeReportId").value.trim();
+        if (!latestReportLines.length) {
+            alert("Please view a transaction report first.");
+            return;
+        }
+        downloadPdf(
+            `${id}_Transactions_Report`,
+            latestReportLines.join("\n")
+        );
+    });
+}
+
+// ** NEW CLIENT STATEMENT DAYS LOGIC **
+if (clientStatementDaysForm) {
+    clientStatementDaysForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!currentClient) return;
+
+        const days = Number($("#clientStatementDaysInput").value);
+
+        if (!days || days <= 0) {
+            alert("Please enter a valid number of days.");
+            return;
+        }
+        
+        // Use filterIdTransactions for client's own history
+        const list = filterIdTransactions(currentClient.id, days);
+        renderTransactionLines(list, clientStatementDaysResult, 'Client');
+    });
+}
+
 function renderClientDetails() {
   if (!currentClient || !clientDetailsSummary) return;
   // This now renders the image based on the modified buildClientSummary
@@ -884,20 +1286,16 @@ document.querySelectorAll("[data-client-tab]").forEach((btn) => {
 });
 
 if (statementForm) {
-  statementForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (!currentClient) return;
-    const period = $("#statementPeriod").value;
-    const list = filterTransactions(currentClient.id, period);
-    renderStatementLines(list);
-  });
+    // Note: This block now handles the old statement form, which is no longer in client.html
+    // but the functionality is replaced by clientStatementDaysForm. Keeping this block 
+    // empty or removed is fine since the HTML form is gone.
 }
 
 if (downloadStatementPdfBtn) {
   downloadStatementPdfBtn.addEventListener("click", () => {
     if (!currentClient) return;
     if (!latestStatementLines.length) {
-      alert("View a statement first.");
+      alert("View a statement first by entering the number of days.");
       return;
     }
     downloadPdf(
@@ -905,6 +1303,78 @@ if (downloadStatementPdfBtn) {
       latestStatementLines.join("\n")
     );
   });
+}
+
+function renderEmployeeList() {
+  if (!employeeList) return;
+  if (!employees.length) {
+    employeeList.innerHTML = '<p class="muted">No employees yet.</p>';
+    return;
+  }
+  employeeList.innerHTML = employees
+    .map(
+      (emp) => `
+        <div class="record-row">
+          <div>
+            <strong>${emp.name} (${emp.id})</strong>
+            <p>${emp.position} · Salary ${formatCurrency(emp.salary)}</p>
+            <p class="record-meta">Email: ${emp.email} · Mobile: ${emp.mobile}</p>
+            <p class="record-meta">Login Password: ${emp.password}</p>
+          </div>
+          <div class="record-actions">
+            <button class="btn secondary mini" data-view-employee="${emp.id}">View</button>
+            <button class="btn primary mini" data-download-employee="${emp.id}">Appointment PDF</button>
+          </div>
+        </div>`
+    )
+    .join("");
+}
+
+function renderClientList() {
+  if (!clientList) return;
+  if (!clients.length) {
+    clientList.innerHTML = '<p class="muted">No clients yet.</p>';
+    return;
+  }
+  clientList.innerHTML = clients
+    .map(
+      (client) => `
+        <div class="record-row">
+          <div>
+            <strong>${client.name} (${client.id})</strong>
+            <p>${client.accountType} · Balance ${formatCurrency(client.balance)}</p>
+            <p class="record-meta">Debit Card: **** **** **** ${client.debitCard.slice(-4)}</p>
+          </div>
+          <div class="record-actions">
+            <button class="btn secondary mini" data-view-client="${client.id}">View</button>
+            <button class="btn primary mini" data-download-client="${client.id}">Details PDF</button>
+          </div>
+        </div>`
+    )
+    .join("");
+}
+
+function downloadEmployeePdf(employee) {
+  const lines = buildEmployeeSummary(employee).replace(
+    /<\/?[^>]+(>|$)/g,
+    ""
+  );
+  downloadPdf(
+    `Employee_Appointment_${employee.id}`,
+    lines + "\n\n" + buildAppointmentLetter(employee)
+  );
+}
+
+function downloadClientPdf(client) {
+  const lines = buildClientSummary(client).replace(/<\/?[^>]+(>|$)/g, "");
+  downloadPdf(`Client_Details_${client.id}`, lines);
+}
+
+function refreshAutoFields() {
+  generateEmployeeId();
+  generateClientId();
+  generateEmployeePassword();
+  generateCardDetails(); // Unified card details generation
 }
 
 function initializePageRole() {
