@@ -17,7 +17,9 @@
       <div class="hero__content">
         <p class="eyebrow">Client Portal</p>
         <h1>Your Money, Your Control</h1>
-        <p class="subtitle">View balances, transfer funds, and download statements instantly.</p>
+        <p class="subtitle">
+          View balances, transfer funds, and download statements instantly.
+        </p>
         <div class="hero__cta">
           <a class="btn" href="index.html">Switch User</a>
           <a class="btn secondary" href="employee.html">Employee Helpdesk</a>
@@ -29,51 +31,118 @@
     <main>
       <section id="client-dashboard" class="card glass hidden">
         <h3>Client Home</h3>
-        <div class="tabs">
-          <button class="btn pill active" data-client-tab="details">1. Client Details</button>
-          <button class="btn pill" data-client-tab="transfer">2. Money Transfer</button>
-          <button class="btn pill" data-client-tab="statement">3. Statement</button>
-        </div>
-        <div id="clientTabDetails" class="client-tab">
-          <div id="clientDetailsSummary" class="result"></div>
-        </div>
-        <div id="clientTabTransfer" class="client-tab hidden">
-          <form id="clientTransferForm" class="form">
-            <label>
-              Receiving Client ID
-              <input type="text" id="clientTransferTarget" required />
-            </label>
-            <label>
-              Amount
-              <input type="number" id="clientTransferAmount" min="1" required />
-            </label>
-            <label>
-              Enter 5 Password PIN
-              <input type="password" id="clientTransferPin" minlength="5" maxlength="5" required />
-            </label>
-            <button class="btn primary" type="submit">Send Money</button>
-          </form>
-          <p id="clientTransferStatus" class="status"></p>
-        </div>
-        <div id="clientTabStatement" class="client-tab hidden">
-          <form id="statementForm" class="form">
-            <label>
-              Statement Period
-              <select id="statementPeriod">
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="quarterly">3 Monthly</option>
-                <option value="halfyearly">6 Monthly</option>
-                <option value="yearly">1 Year</option>
-              </select>
-            </label>
-            <button class="btn secondary" type="submit">View Statement</button>
-          </form>
-          <div id="statementResults" class="result"></div>
-          <button class="btn secondary" id="downloadStatementPdf">
-            Download Statement PDF
+        <div class="stack horizontal-stack">
+          <button class="btn pill active" data-client-tab="details">
+            Account Details
           </button>
+          <button class="btn pill" data-client-tab="transfer">
+            Money Transfer
+          </button>
+          <button class="btn pill" data-client-tab="statement">
+            Statement
+          </button>
+        </div>
+        <div class="client-tabs">
+          <div
+            id="clientTabDetails"
+            class="client-tab"
+            data-client-tab="details"
+          >
+            <pre id="clientDetailsSummary"></pre>
+            <div class="stack horizontal-stack">
+              <button class="btn primary" id="downloadDebitCardPdf">
+                Download Debit Card PDF
+              </button>
+            </div>
+            <button class="btn secondary" id="downloadClientPdf">
+              Download Details PDF
+            </button>
+          </div>
+
+          <div
+            id="clientTabTransfer"
+            class="client-tab hidden"
+            data-client-tab="transfer"
+          >
+            <h4>Internal Transfer (Within All in One Bank)</h4>
+            <form id="clientTransferForm" class="form">
+              <label>
+                Receiver Client ID (CLTxxxx)
+                <input type="text" id="transferReceiverId" required />
+              </label>
+              <label>
+                Amount to Transfer (₹)
+                <input type="number" id="transferAmount" min="1" required />
+              </label>
+              <button class="btn primary" type="submit">Transfer Funds</button>
+            </form>
+            <p id="clientTransferStatus" class="status"></p>
+
+            <h4 style="margin-top: 2rem;">
+              External Transfer (Other Bank - NEFT/RTGS)
+            </h4>
+            <form id="externalTransferForm" class="form">
+              <label>
+                Receiver Account Number
+                <input type="text" id="externalReceiverAccount" required />
+              </label>
+              <label>
+                IFSC Code
+                <input
+                  type="text"
+                  id="externalIfscCode"
+                  maxlength="11"
+                  required
+                />
+              </label>
+              <label>
+                Receiver Name
+                <input type="text" id="externalReceiverName" required />
+              </label>
+              <label>
+                Amount to Transfer (₹)
+                <input
+                  type="number"
+                  id="externalTransferAmount"
+                  min="1"
+                  required
+                />
+              </label>
+              <button class="btn primary" type="submit">
+                Transfer to Other Bank
+              </button>
+            </form>
+            <p id="externalTransferStatus" class="status"></p>
+            </div>
+
+          <div
+            id="clientTabStatement"
+            class="client-tab hidden"
+            data-client-tab="statement"
+          >
+            <h4>Statement History</h4>
+            <form id="clientStatementDaysForm" class="form">
+              <label>
+                Enter Days Back (e.g., 90 for 3 months)
+                <input
+                  type="number"
+                  id="clientStatementDaysInput"
+                  min="1"
+                  max="365"
+                  value="30"
+                  required
+                />
+              </label>
+              <button class="btn secondary" type="submit">
+                View Statement
+              </button>
+            </form>
+            <div id="clientStatementDaysResult" class="result" style="margin-top: 1rem;"></div>
+            
+            <button class="btn primary" id="downloadStatementPdf">
+              Download Statement PDF
+            </button>
+          </div>
         </div>
       </section>
     </main>
@@ -85,8 +154,15 @@
       <p>Email: support@allinonemoneybank.com | Phone: +91 90000 00000</p>
     </footer>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha512-NaWTHo/Of0miEJeZVrDCTnhgypKekJy5o+1OtSWT8gJtIhXCTITVEWilQoNqT9XyM54q9WlH0I1GtIsfRSAxiw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"
+      integrity="sha512-NaWTHo/8vQRVADADObCNoSV7BsrCnmStNFM34OjK4WuTdB4T/RJqaWc9Ypn0SAoZ91XAX+nePh...
+      
+      
+      
+      
+      "
+    ></script>
     <script src="app.js"></script>
   </body>
 </html>
-
